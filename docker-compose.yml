@@ -1,0 +1,20 @@
+services:
+  fda-pipeline:
+    build: .
+    env_file: .env
+    volumes:
+      # Persist output data and logs on the host
+      - ./fda_data:/app/fda_data
+    # Run immediately on container start
+    command: ["python", "-m", "fda_pipeline.pipeline", "--run-now"]
+
+  # To run in scheduled mode (stays alive, triggers at SCHEDULE_TIME):
+  # docker compose run fda-pipeline python -m fda_pipeline.pipeline
+  fda-pipeline-scheduled:
+    build: .
+    env_file: .env
+    volumes:
+      - ./fda_data:/app/fda_data
+    command: ["python", "-m", "fda_pipeline.pipeline"]
+    profiles:
+      - scheduled

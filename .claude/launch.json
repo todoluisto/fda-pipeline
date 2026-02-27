@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "monitor",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "fda_pipeline.monitor"],
+      "port": 5050
+    }
+  ]
+}

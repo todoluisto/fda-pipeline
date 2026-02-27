@@ -1,0 +1,68 @@
+# =============================================================================
+# FDA Pipeline — Cloud Build CI/CD
+# =============================================================================
+# Triggers on push to main. Builds the Docker image and redeploys Cloud Run.
+#
+# Setup:
+#   gcloud builds triggers create github \
+#     --repo-name=fda-pipeline \
+#     --repo-owner=YOUR_GITHUB_USER \
+#     --branch-pattern=^main$ \
+#     --build-config=deploy/cloudbuild.yaml
+#
+# Required substitutions (set in the trigger or here):
+#   _REGION      — GCP region (e.g. us-central1)
+#   _BUCKET      — GCS bucket name
+#   _SERVICE     — Cloud Run service name (default: fda-monitor)
+# =============================================================================
+
+substitutions:
+  _REGION: us-central1
+  _BUCKET: fda-pipeline-data
+  _SERVICE: fda-monitor
+  _REPO: fda-pipeline
+
+steps:
+  # Build Docker image
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$COMMIT_SHA
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:latest
+      - .
+
+  # Push both tags
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE
+
+  # Deploy to Cloud Run
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - $_SERVICE
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$COMMIT_SHA
+      - --platform=managed
+      - --region=$_REGION
+      - --min-instances=1
+      - --max-instances=2
+      - --port=5050
+      - --memory=512Mi
+      - --timeout=3600
+      - --set-env-vars=STORAGE_BACKEND=cloud,CLOUD_STORAGE_PROVIDER=gcs,CLOUD_STORAGE_BUCKET=$_BUCKET,CLOUD_STORAGE_PREFIX=fda_data/,SCHEDULER_BACKEND=cloud,LOG_LEVEL=INFO
+      - --command=python
+      - --args=-m,fda_pipeline.monitor
+      - --no-allow-unauthenticated
+
+images:
+  - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:$COMMIT_SHA
+  - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/$_SERVICE:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
