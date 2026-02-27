@@ -95,6 +95,13 @@ LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE: Path = Path(os.getenv("LOG_FILE", str(DATA_DIR / "pipeline.log")))
 
 
+# --- Dashboard Authentication ---
+
+# Password for the monitoring dashboard (HTTP Basic Auth).
+# Leave blank to disable authentication (suitable for local development).
+DASHBOARD_PASSWORD: str = os.getenv("DASHBOARD_PASSWORD", "")
+
+
 # --- Output File Names ---
 
 FULL_OUTPUT_FILENAME: str = "fda_drugs_full.csv"

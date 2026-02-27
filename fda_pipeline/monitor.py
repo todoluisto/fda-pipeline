@@ -10,15 +10,17 @@ Then visit http://localhost:5050
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 
 import schedule
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
 from fda_pipeline import config
 from fda_pipeline.pipeline import _configure_logging, _read_run_history, run
@@ -88,15 +90,43 @@ def _is_running() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+def requires_auth(f):
+    """HTTP Basic Auth decorator. Skipped entirely when DASHBOARD_PASSWORD is unset."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not config.DASHBOARD_PASSWORD:
+            return f(*args, **kwargs)
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Basic "):
+            try:
+                _, password = base64.b64decode(auth[6:]).decode().split(":", 1)
+                if password == config.DASHBOARD_PASSWORD:
+                    return f(*args, **kwargs)
+            except Exception:
+                pass
+        return Response(
+            "Authentication required",
+            401,
+            {"WWW-Authenticate": 'Basic realm="FDA Pipeline Monitor"'},
+        )
+    return decorated
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
 @app.route("/")
+@requires_auth
 def index():
     return render_template("dashboard.html")
 
 
 @app.route("/api/status")
+@requires_auth
 def api_status():
     history = _read_run_history()
     return jsonify({
@@ -125,6 +155,7 @@ def api_run():
 
 
 @app.route("/api/schedule", methods=["POST"])
+@requires_auth
 def api_schedule():
     data = request.get_json(silent=True) or {}
     new_time = data.get("time", "").strip()
