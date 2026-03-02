@@ -23,7 +23,8 @@ import schedule
 from flask import Flask, Response, jsonify, render_template, request
 
 from fda_pipeline import config
-from fda_pipeline.pipeline import _configure_logging, _read_run_history, run
+from fda_pipeline.loader import get_storage_backend
+from fda_pipeline.pipeline import _configure_logging, _read_run_history, _write_run_history, run
 
 app = Flask(__name__)
 logger = logging.getLogger(__name__)
@@ -87,6 +88,29 @@ def _is_running() -> bool:
     """Check if a pipeline run is currently in progress."""
     history = _read_run_history()
     return any(entry.get("status") == "running" for entry in history)
+
+
+def _cleanup_stale_runs() -> None:
+    """On startup, mark any lingering 'running' entries as failed.
+
+    If the container was OOM-killed or crashed mid-run, the run entry is
+    left in 'running' state in GCS forever. This runs once at startup (after
+    a restart) to close those out so the dashboard doesn't stay stuck.
+    """
+    try:
+        storage = get_storage_backend()
+        history = _read_run_history(storage)
+        stale = [e for e in history if e.get("status") == "running"]
+        if not stale:
+            return
+        for entry in stale:
+            entry["status"] = "failed"
+            entry["error"] = "Process restarted unexpectedly (possible OOM or crash)"
+            entry["finished_at"] = datetime.now(timezone.utc).isoformat()
+            logger.warning("Marked stale run %s as failed (process had restarted)", entry["id"])
+        _write_run_history(history, storage)
+    except Exception:
+        logger.exception("Failed to clean up stale run entries on startup")
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +201,9 @@ def api_schedule():
 
 def main():
     _configure_logging()
+
+    # Clean up any runs left in 'running' state from a previous crash/OOM
+    _cleanup_stale_runs()
 
     # Start the scheduler in a background thread
     _reschedule(_schedule_time)
